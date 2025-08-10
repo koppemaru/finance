@@ -76,29 +76,48 @@ export default function FinanceMiniLab() {
     const tax = Math.max(0, Math.round(ebt * taxRate));
     const netIncome = ebt - tax;
 
-    // CF（簡略・間接法）
-    const cfo = netIncome + dep;             // 運転資本の変動は0仮定
-    const cffNet = cff - dividend;           // 配当は資金流出としてCFFに含める
-    const netChangeCash = cfo + cfi + cffNet;
-    const endCash = begCash + netChangeCash;
+    // --- 期首のB/Sを一致させる（Other Assets をプラグ）---
+    // 入力の期首B/Sが合っていない場合、その他資産で調整して期首を必ず一致させる
+    const otherAssetsBegBalanced =
+      (debt + otherLiab + shareCapital + retainedEarningsBeg) - (begCash + ppeNet);
 
-    // B/S（期末）
-    const assets = endCash + ppeNet + otherAssets;
+    // --- CF（簡略・間接法）---
+    const cfo = netIncome + dep;                           // 運転資本の変動は0仮定
+    const endCash = begCash + cfo + cfi + cff - dividend;  // 配当はCFFの現金流出として控除
+
+    // --- 固定資産・負債の期末化 ---
+    // PPE期末 = 期首PPE − 減価償却 − CFI（CFI<0=投資で増、>0=売却で減。符号そのまま）
+    const ppeEnd  = ppeNet - dep - cfi;
+    // 有利子負債期末 = 期首負債 + CFF（CFFは純借入と仮定）
+    const debtEnd = debt + cff;
+
+    // --- 期末B/S ---
+    const assets = endCash + ppeEnd + otherAssetsBegBalanced;
     const retainedEarningsEnd = retainedEarningsBeg + netIncome - dividend;
     const equity = shareCapital + retainedEarningsEnd;
-    const liabEquity = debt + otherLiab + equity;
-    const imbalance = assets - liabEquity;   // 0が正しい
+    const liabEquity = debtEnd + otherLiab + equity;
+
+    const imbalance = assets - liabEquity; // ここが常に0（±1円の丸め誤差はあり得ます）
 
     // 指標
     const opMargin = sales ? ebit / sales : 0;
     const netMargin = sales ? netIncome / sales : 0;
     const interestCoverage = interest > 0 ? ebit / interest : Infinity;
     const roa = assets ? netIncome / assets : 0;
-    const leverage = equity > 0 ? (debt + otherLiab) / equity : Infinity;
+    const leverage = equity > 0 ? (debtEnd + otherLiab) / equity : Infinity;
 
-    return { cogs, gross, ebitda, ebit, ebt, tax, netIncome, cfo, cfi, cff: cffNet, netChangeCash, endCash,
-             assets, retainedEarningsEnd, equity, liabEquity, imbalance, opMargin, netMargin, interestCoverage, roa, leverage };
-  }, [sales, cogsRate, sga, dep, interest, taxRate, begCash, ppeNet, otherAssets, debt, otherLiab, shareCapital, retainedEarningsBeg, cfi, cff, dividend]);
+    return {
+      cogs, gross, ebitda, ebit, ebt, tax, netIncome,
+      cfo, cfi, cff: (cff - dividend),               // 表示用のCFFは配当控除後（任意）
+      netChangeCash: (endCash - begCash), endCash,
+      ppeEnd, debtEnd,
+      assets, retainedEarningsEnd, equity, liabEquity, imbalance,
+      opMargin, netMargin, interestCoverage, roa, leverage,
+    };
+  }, [sales, cogsRate, sga, dep, interest, taxRate,
+    begCash, ppeNet, otherAssets, debt, otherLiab, shareCapital,
+    retainedEarningsBeg, cfi, cff, dividend]);
+
 
   // ---- 表示ユーティリティ ----
   const fmt = (n) => (Number.isFinite(n) ? n.toLocaleString("ja-JP") : "―");
@@ -130,7 +149,7 @@ export default function FinanceMiniLab() {
   // ---- B/S 可視化データ（左:資産 / 右:負債+純資産） ----
   const bsData = [
     { name: "資産", 資産: calc.assets },
-    { name: "負債・純資産", 負債: debt + otherLiab, 純資産: calc.equity },
+    { name: "負債・純資産", 負債: calc.debtEnd + otherLiab, 純資産: calc.equity },
   ];
 
   // ---- フォーム用の行コンポーネント（ラベル/入力を整列） ----
